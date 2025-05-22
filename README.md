@@ -31,7 +31,7 @@ void get_timestamp(char *buffer, size_t size, const char *format) {
     strftime(buffer, size, format, t);
 }
 ```
-Fungsi ini membantu membuat timestamp dalam bentuk string, yang berguna untuk penamaan file, logging, atau keperluan pencatatan waktu lainnya.
+Fungsi ini membantu membuat timestamp dalam bentuk string, yang berguna untuk penamaan file, logging, atau keperluan pencatatan waktu lainnya
 ```c
 int convert_hex_to_image(const char *hex_path, const char *original_filename) {
     FILE *hex_file = fopen(hex_path, "r");
