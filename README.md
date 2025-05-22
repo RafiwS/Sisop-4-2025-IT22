@@ -6,7 +6,7 @@ Zahra Hafizhah 5027241121
 ===================================================================
 ```
 No.1 
-Pada soal ini kita disuruh untuk menkonversi file txt untuk menjadi sebuah gambar .png
+Pada soal ini kita disuruh untuk menkonversi file .txt untuk menjadi sebuah gambar .png dengan cara menggunakan FUSE 
 ```c
 #define FUSE_USE_VERSION 35
 #include <fuse3/fuse.h>
