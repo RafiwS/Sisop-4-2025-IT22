@@ -9,7 +9,7 @@ Sistem ini merupakan implementasi Filesystem in Userspace (FUSE) dalam container
 
 
  - Docker File
-```c
+```DockerFile
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
