@@ -1,4 +1,189 @@
-# Sisop-4-2025-IT22
+```
+===================================================================
+Ananda Widi Alrafi 5027241067
+Raynard Carlent 5027241109
+Zahra Hafizhah 5027241121
+===================================================================
+```
+No.1 
+Pada soal ini kita disuruh untuk menkonversi file txt untuk menjadi sebuah gambar .png
+```c
+#define FUSE_USE_VERSION 35
+#include <fuse3/fuse.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <time.h>
+#include <dirent.h>
+
+#define SOURCE_DIR "./anomali"
+#define IMAGE_DIR "./image"
+#define LOG_FILE "conversion.log"
+```
+```c
+void get_timestamp(char *buffer, size_t size, const char *format) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    strftime(buffer, size, format, t);
+}
+```
+Fungsi ini membantu membuat timestamp dalam bentuk string, yang berguna untuk penamaan file, logging, atau keperluan pencatatan waktu lainnya.
+```c
+int convert_hex_to_image(const char *hex_path, const char *original_filename) {
+    FILE *hex_file = fopen(hex_path, "r");
+    if (!hex_file) return -1;
+
+    char timestamp[32];
+    get_timestamp(timestamp, sizeof(timestamp), "%Y-%m-%d_%H:%M:%S");
+
+    char base_name[256];
+    strncpy(base_name, original_filename, sizeof(base_name));
+    base_name[sizeof(base_name) - 1] = '\0';
+    char *dot = strrchr(base_name, '.');
+    if (dot) *dot = '\0';
+
+    char image_filename[512];
+    snprintf(image_filename, sizeof(image_filename), "%s_image_%s.png", base_name, timestamp);
+
+    char image_path[1024];
+    snprintf(image_path, sizeof(image_path), "%s/%s", IMAGE_DIR, image_filename);
+
+    FILE *img_file = fopen(image_path, "wb");
+    if (!img_file) {
+        fclose(hex_file);
+        return -1;
+    }
+
+    char hexbuf[4096];
+    unsigned char binbuf[2048];
+    size_t hexlen = 0, i = 0, binlen = 0;
+    int leftover = 0;
+
+    while (!feof(hex_file)) {
+        hexlen = fread(hexbuf + leftover, 1, sizeof(hexbuf) - leftover, hex_file);
+        hexlen += leftover;
+        if (hexlen == 0) break;
+        binlen = 0;
+        for (i = 0; i + 1 < hexlen; i += 2) {
+            unsigned int byte;
+            if (sscanf(&hexbuf[i], "%2x", &byte) == 1) {
+                binbuf[binlen++] = (unsigned char)byte;
+            }
+        }
+        fwrite(binbuf, 1, binlen, img_file);
+        if (hexlen % 2 != 0) {
+            hexbuf[0] = hexbuf[hexlen - 1];
+            leftover = 1;
+        } else {
+            leftover = 0;
+        }
+    }
+
+    fclose(hex_file);
+    fclose(img_file);
+
+    FILE *log = fopen(LOG_FILE, "a");
+    if (log) {
+        char log_time[32];
+        get_timestamp(log_time, sizeof(log_time), "%Y-%m-%d][%H:%M:%S");
+        fprintf(log, "[%s]: Successfully converted hexadecimal text %s to %s.\n", log_time, original_filename, image_filename);
+        fclose(log);
+    }
+
+    return 0;
+}
+```
+Fungsi convert_hex_to_image mengubah file teks heksadesimal menjadi file gambar .png dengan nama bertimestamp, menyimpannya di folder ./image, dan mencatat proses konversi ke dalam file log
+
+```c
+static int hexed_getattr(const char *path, struct stat *st, struct fuse_file_info *fi) {
+    char full_path[1024];
+    snprintf(full_path, sizeof(full_path), "%s%s", SOURCE_DIR, path);
+    return lstat(full_path, st);
+}
+```c
+static int hexed_getattr(const char *path, struct stat *st, struct fuse_file_info *fi) {
+    char full_path[1024];
+    snprintf(full_path, sizeof(full_path), "%s%s", SOURCE_DIR, path);
+    return lstat(full_path, st);
+}
+```
+Fungsi hexed_getattr mengambil atribut file (seperti ukuran dan waktu modifikasi) dari path asli di folder ./anomali menggunakan lstat
+
+```c
+static int hexed_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
+    DIR *dp;
+    struct dirent *de;
+
+    dp = opendir(SOURCE_DIR);
+    if (!dp) return -ENOENT;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    while ((de = readdir(dp)) != NULL) {
+        filler(buf, de->d_name, NULL, 0, 0);
+    }
+
+    closedir(dp);
+    return 0;
+}
+```
+Fungsi hexed_readdir menampilkan daftar isi direktori ./anomali ke dalam filesystem FUSE, termasuk entri khusus "." dan ".."
+
+```c
+static int hexed_open(const char *path, struct fuse_file_info *fi) {
+    char full_path[1024];
+    snprintf(full_path, sizeof(full_path), "%s%s", SOURCE_DIR, path);
+    int res = open(full_path, O_RDONLY);
+    if (res == -1) return -ENOENT;
+    close(res);
+    return 0;
+}
+```
+Fungsi hexed_open memeriksa apakah file pada path di direktori ./anomali bisa dibuka untuk dibaca, dan mengembalikan kesalahan jika file tidak ditemukan
+
+```c
+static int hexed_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    char full_path[1024];
+    snprintf(full_path, sizeof(full_path), "%s%s", SOURCE_DIR, path);
+
+    const char *filename = path[0] == '/' ? path + 1 : path;
+    convert_hex_to_image(full_path, filename);
+
+    int fd = open(full_path, O_RDONLY);
+    if (fd == -1) return -errno;
+
+    int res = pread(fd, buf, size, offset);
+    if (res == -1) res = -errno;
+
+    close(fd);
+    return res;
+}
+```
+Fungsi hexed_read membaca isi file dari direktori ./anomali, terlebih dahulu mengonversi file tersebut menjadi gambar menggunakan convert_hex_to_image, lalu mengembalikan data file yang dibaca
+
+```c
+static const struct fuse_operations hexed_oper = {
+    .getattr = hexed_getattr,
+    .readdir = hexed_readdir,
+    .open = hexed_open,
+    .read = hexed_read,
+};
+```
+Struktur hexed_oper mendefinisikan operasi-operasi FUSE yang digunakan filesystem ini, yaitu untuk mengambil atribut file (getattr), membaca isi direktori (readdir), membuka file (open), dan membaca file (read)
+
+```c
+int main(int argc, char *argv[]) {
+    return fuse_main(argc, argv, &hexed_oper, NULL);
+}
+```
+Fungsi main menjalankan filesystem FUSE dengan operasi yang didefinisikan dalam hexed_oper, menggunakan argumen dari baris perintah
+
 
 No.3
 Sistem ini merupakan implementasi Filesystem in Userspace (FUSE) dalam container Docker yang:
