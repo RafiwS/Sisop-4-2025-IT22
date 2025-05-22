@@ -184,6 +184,261 @@ int main(int argc, char *argv[]) {
 ```
 Fungsi main menjalankan filesystem FUSE dengan operasi yang didefinisikan dalam hexed_oper, menggunakan argumen dari baris perintah
 
+No.2
+Pada nomor 2 ini, kita diminta untuk membuat sistem file virtual menggunakan FUSE yang menyatukan file Baymax.jpeg yang terpecah menjadi 14 bagian dalam folder relics, sehingga muncul sebagai satu file utuh di direktori mount_dir. Selain itu, sistem harus bisa memecah file baru yang ditulis ke dalam potongan 1 KB dan menyimpannya di relics, menghapus semua pecahan saat file dihapus, serta mencatat semua aktivitas (read, write, copy, delete) ke dalam activity.log.
+
+1. Global Constants
+```c
+#define MAX_CHUNK_SIZE 1024
+#define RELIC_DIR "/home/kali/baymax_fs/relics"
+#define LOG_FILE "home/kali/baymax_fs/activity.log"
+```
+- Menentukan ukuran maksimal setiap potongan file (1 KB).
+- RELIC_DIR: Lokasi folder penyimpanan pecahan file.
+- LOG_FILE: Lokasi file log aktivitas.
+
+2. log_activity
+```c
+void log_activity(const char *fmt, ...) {
+    FILE *fp = fopen(LOG_FILE, "a");
+    if (!fp) return;
+
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+
+    fprintf(fp, "[%04d-%02d-%02d %02d:%02d:%02d] ",
+            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+            t->tm_hour, t->tm_min, t->tm_sec);
+
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(fp, fmt, args);
+    va_end(args);
+
+    fprintf(fp, "\n");
+    fclose(fp);
+}
+```
+Mencatat log aktivitas ke file activity.log dengan format timestamp.
+
+3. xmp_getattr
+```c
+static int xmp_getattr(const char *path, struct stat *stbuf,
+                       struct fuse_file_info *fi) {
+    (void) fi;
+    memset(stbuf, 0, sizeof(struct stat));
+
+    if (strcmp(path, "/") == 0) {
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+    } else {
+        char filename[256];
+        strcpy(filename, path + 1);
+
+        char chunk_path[512];
+        sprintf(chunk_path, "%s/%s.000", RELIC_DIR, filename);
+
+        if (access(chunk_path, F_OK) != 0)
+            return -ENOENT;
+
+        int chunk_num = 0;
+        off_t total_size = 0;
+        while (1) {
+            sprintf(chunk_path, "%s/%s.%03d", RELIC_DIR, filename, chunk_num);
+            FILE *fp = fopen(chunk_path, "rb");
+            if (!fp) break;
+
+            fseek(fp, 0, SEEK_END);
+            total_size += ftell(fp);
+            fclose(fp);
+            chunk_num++;
+        }
+
+        stbuf->st_mode = S_IFREG | 0666;
+        stbuf->st_nlink = 1;
+        stbuf->st_size = total_size;
+    }
+
+    return 0;
+}
+```
+Mengembalikan informasi atribut file atau direktori.
+
+4. xmp_readdir
+```c
+static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                       off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
+    (void) offset;
+    (void) fi;
+    (void) flags;
+
+    filler(buf, ".", NULL, 0, 0);
+    filler(buf, "..", NULL, 0, 0);
+
+    if (strcmp(path, "/") != 0)
+        return 0;
+
+    DIR *dp = opendir(RELIC_DIR);
+    if (!dp) return -errno;
+
+    struct dirent *de;
+    char seen[1000][256];
+    int seen_count = 0;
+
+    while ((de = readdir(dp)) != NULL) {
+        if (de->d_type != DT_REG) continue;
+
+        char *dot = strrchr(de->d_name, '.');
+        if (!dot || strlen(dot + 1) != 3) continue;
+
+        char filename[256];
+        strncpy(filename, de->d_name, dot - de->d_name);
+        filename[dot - de->d_name] = '\0';
+
+        int already_seen = 0;
+        for (int i = 0; i < seen_count; i++) {
+            if (strcmp(seen[i], filename) == 0) {
+                already_seen = 1;
+                break;
+            }
+        }
+
+        if (!already_seen) {
+            filler(buf, filename, NULL, 0, 0);
+            strcpy(seen[seen_count++], filename);
+        }
+    }
+
+    closedir(dp);
+    return 0;
+}
+```
+Membaca isi direktori mount dan menampilkan file hasil penyatuan pecahan.
+
+5. xmp_create
+```c
+static int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+    return 0;
+}
+```
+Stub untuk membuat file baru, implementasi logika ada di write.
+
+6. xmp_write
+```c
+static int xmp_write(const char *path, const char *buf, size_t size,
+                     off_t offset, struct fuse_file_info *fi) {
+    char filename[256];
+    strcpy(filename, path + 1);
+
+    int chunk_num = 0;
+    size_t written = 0;
+    while (written < size) {
+        char chunk_path[512];
+        sprintf(chunk_path, "%s/%s.%03d", RELIC_DIR, filename, chunk_num);
+
+        FILE *fp = fopen(chunk_path, "wb");
+        if (!fp) return -errno;
+
+        size_t to_write = (size - written > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : size - written;
+        fwrite(buf + written, 1, to_write, fp);
+        fclose(fp);
+
+        written += to_write;
+        chunk_num++;
+    }
+
+    log_activity("WRITE: %s -> %s.000 - %s.%03d", filename, filename, filename, chunk_num - 1);
+    return size;
+}
+
+```
+Menulis file ke direktori mount, memecah menjadi potongan 1KB, disimpan di relics.
+
+7. xmp_read
+```c
+static int xmp_write(const char *path, const char *buf, size_t size,
+                     off_t offset, struct fuse_file_info *fi) {
+    char filename[256];
+    strcpy(filename, path + 1);
+
+    int chunk_num = 0;
+    size_t written = 0;
+    while (written < size) {
+        char chunk_path[512];
+        sprintf(chunk_path, "%s/%s.%03d", RELIC_DIR, filename, chunk_num);
+
+        FILE *fp = fopen(chunk_path, "wb");
+        if (!fp) return -errno;
+
+        size_t to_write = (size - written > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : size - written;
+        fwrite(buf + written, 1, to_write, fp);
+        fclose(fp);
+
+        written += to_write;
+        chunk_num++;
+    }
+
+    log_activity("WRITE: %s -> %s.000 - %s.%03d", filename, filename, filename, chunk_num - 1);
+    return size;
+}
+
+```
+Membaca gabungan isi dari semua potongan dan mengisi buffer pembaca.
+
+8. xmp_unlink
+```c
+static int xmp_unlink(const char *path) {
+    char filename[256];
+    strcpy(filename, path + 1);
+
+    int chunk_num = 0;
+    char chunk_path[512];
+
+    while (1) {
+        sprintf(chunk_path, "%s/%s.%03d", RELIC_DIR, filename, chunk_num);
+        if (access(chunk_path, F_OK) != 0)
+            break;
+        remove(chunk_path);
+        chunk_num++;
+    }
+
+    if (chunk_num > 0)
+        log_activity("DELETE: %s.000 - %s.%03d", filename, filename, chunk_num - 1);
+
+    return 0;
+}
+```
+Menghapus file virtual (di mount), sekaligus semua pecahan fisiknya di relics.
+
+9. xmp_open
+```c
+static int xmp_open(const char *path, struct fuse_file_info *fi) {
+    char filename[256];
+    strcpy(filename, path + 1);
+    log_activity("READ: %s", filename);
+    return 0;
+}
+```
+Menangani pembukaan file, mencatat log aktivitas READ.
+
+10. Main
+```c
+static struct fuse_operations xmp_oper = {
+    .getattr = xmp_getattr,
+    .readdir = xmp_readdir,
+    .create  = xmp_create,
+    .write   = xmp_write,
+    .read    = xmp_read,
+    .unlink  = xmp_unlink,
+    .open    = xmp_open,
+};
+
+int main(int argc, char *argv[]) {
+    return fuse_main(argc, argv, &xmp_oper, NULL);
+}
+```
+FUSE entry point, mendaftarkan semua operasi ke FUSE.
+
 
 No.3
 Sistem ini merupakan implementasi Filesystem in Userspace (FUSE) dalam container Docker yang:
