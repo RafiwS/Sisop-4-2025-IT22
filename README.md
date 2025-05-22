@@ -1,7 +1,13 @@
 # Sisop-4-2025-IT22
 
 No.3
-Soal no 3 membuat sebuah program yang dapat mendeteksi kenakalan apabila ada file bernama kimcun dan nafis.
+Sistem ini merupakan implementasi Filesystem in Userspace (FUSE) dalam container Docker yang:
+-Mendeteksi file dengan kata kunci "nafis" atau "kimcun"
+-Membalik nama file berbahaya saat ditampilkan
+-Mengenkripsi isi file normal dengan ROT13
+-Mencatat semua aktivitas dalam log file
+
+
  - Docker File
 ```
 FROM ubuntu:22.04
@@ -268,6 +274,19 @@ static struct fuse_operations antink_oper = {
 int main(int argc, char *argv[]) {
     return fuse_main(argc, argv, &antink_oper, NULL);
 }
+```
+
+Untuk build dan jalankan container dapat menggunakan command
+```
+docker-compose build --no-cache  
+docker-compose up -d
+```
+
+Sebenernya, harus ada file contoh untuk dapat menjalankan program seperti file  txt ini
+```
+echo "Ini file normal" > soal_3/it24_host/normal.txt
+echo "Ini file nafis" > soal_3/it24_host/nafis.txt
+echo "Ini file kimcun" > soal_3/it24_host/kimcun.txt
 ```
 
 Nah di soal ketiga aku belum bisa berhasil menjalankan program yang ada dikarenakan ada beberapa kesalahan. 
