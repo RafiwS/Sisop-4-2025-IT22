@@ -9,7 +9,7 @@ Sistem ini merupakan implementasi Filesystem in Userspace (FUSE) dalam container
 
 
  - Docker File
-```
+```c
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
@@ -31,7 +31,7 @@ CMD ["/app/antink", "/antink_mount"]
 ```
 
 -Docker-compose.yml
-```
+```c
 version: '3'
 
 services:
@@ -59,7 +59,7 @@ services:
 ```
 
 -antink.c (Implementasi FUSE)
-```
+```c
 #define FUSE_USE_VERSION 30
 #include <fuse.h>
 #include <stdio.h>
@@ -277,13 +277,13 @@ int main(int argc, char *argv[]) {
 ```
 
 Untuk build dan jalankan container dapat menggunakan command
-```
+```c
 docker-compose build --no-cache  
 docker-compose up -d
 ```
 
 Sebenernya, harus ada file contoh untuk dapat menjalankan program seperti file  txt ini
-```
+```c
 echo "Ini file normal" > soal_3/it24_host/normal.txt
 echo "Ini file nafis" > soal_3/it24_host/nafis.txt
 echo "Ini file kimcun" > soal_3/it24_host/kimcun.txt
